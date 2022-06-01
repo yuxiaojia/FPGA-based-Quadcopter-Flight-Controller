@@ -1,0 +1,59 @@
+# QuadCopter Synthesize script
+
+read_file -format sverilog {QuadCopter.sv UART_comm.sv cmd_cfg.sv inert_intf.sv flght_cntrl.sv ESCs.sv reset_synch.sv SPI_mnrch.sv PD_math.sv ESC_interface.sv UART.sv UART_rcv.sv UART_tx.sv inertial_integrator.sv}
+
+set current_design QuadCopter
+link
+
+# Define clock
+create_clock -name "clk" -period 3.75 -waveform {0 1.875} {clk}
+set_dont_touch_network [find port clk]
+
+# Set up pointers
+set prim_inputs [remove_from_collection [all_inputs] [find port clk]]
+set driving_inputs [remove_from_collection [copy_collection $prim_inputs] [find port rst_n]]
+
+# Set input delay & drive specs
+set_input_delay -clock clk 0.25 [copy_collection $prim_inputs]
+set_driving_cell -lib_cell NAND2X2_RVT -library saed32rvt_tt0p85v25c [copy_collection $driving_inputs]
+
+# Don't let Synopsys modify rst_n signal
+set_dont_touch_network [get_net iRST/rst_n]
+
+# Set ouput delya & load
+set_output_delay -clock clk 0.5 [all_outputs]
+set_load 0.1 [all_outputs]
+
+# Wire load model
+set_wire_load_model -name 16000 -library saed32rvt_tt0p85v25c
+
+# Max transition time
+set_max_transition 0.15 [current_design]
+
+# Set clock uncertainty
+set_clock_uncertainty 0.20 clk
+
+# Synthesize 1st time
+compile -map_effort low
+#check_design
+
+
+# Flatten design
+ungroup -all -flatten
+
+#fix min time delay
+set_fix_hold clk 
+
+# Synthesize again
+compile -map_effort high
+#high
+check_design
+
+report_area > QuadCopter_area.txt
+
+report_timing -path full -delay max -nworst 3
+report_timing -path full -delay min -nworst 3
+report_register -level_sensitive
+
+write_sdc QuadCopter.sdc
+write -format verilog QuadCopter -output QuadCopter.vg
